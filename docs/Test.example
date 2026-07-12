@@ -1,0 +1,7 @@
+Local testing — verified live this session:
+
+
+bin/jwks generate
+bin/serve                # or: composer serve
+curl http://127.0.0.1:8080/.well-known/jwks.json
+The test suite also includes BuiltInServerTest, which boots a real php -S process and asserts over actual HTTP (no mocks), including that no private key material (d, p, q) is ever served.

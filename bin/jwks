@@ -1,0 +1,28 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * jwks — manage the RSA signing keys behind the JWKS endpoint.
+ * Run "bin/jwks help" for the list of commands.
+ */
+
+declare(strict_types=1);
+
+use Jwks\Cli;
+use Jwks\KeyStore;
+
+require dirname(__DIR__) . '/vendor/autoload.php';
+
+$keysDirectory = getenv('JWKS_KEYS_DIR');
+if (!is_string($keysDirectory) || $keysDirectory === '') {
+    $keysDirectory = dirname(__DIR__) . '/working/keys';
+}
+
+/** @var list<string> $argv */
+
+try {
+    exit(new Cli(new KeyStore($keysDirectory), STDOUT, STDERR)->run($argv));
+} catch (Throwable $exception) {
+    fwrite(STDERR, 'Error: ' . $exception->getMessage() . "\n");
+    exit(1);
+}

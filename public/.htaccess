@@ -1,0 +1,4 @@
+# Route all requests to the front controller so /.well-known/jwks.json is
+# handled by index.php. Only needed when the virtual host does not already
+# set FallbackResource itself (requires AllowOverride Indexes or All).
+FallbackResource /index.php

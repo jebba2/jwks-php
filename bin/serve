@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+#
+# serve — run the JWKS endpoint locally with PHP's built-in web server.
+#
+# Usage: bin/serve [host:port]
+#   host:port defaults to 127.0.0.1:8080
+#
+# The built-in server is for local testing only; production runs under
+# Apache (see docs/apache-vhost.conf.example).
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+ADDRESS="${1:-127.0.0.1:8080}"
+
+if ! command -v php >/dev/null 2>&1; then
+    echo "Error: php not found on PATH" >&2
+    exit 1
+fi
+
+echo "Serving JWKS at http://$ADDRESS/.well-known/jwks.json (Ctrl-C to stop)"
+exec php -S "$ADDRESS" -t public public/index.php

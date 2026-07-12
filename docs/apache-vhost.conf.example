@@ -1,0 +1,46 @@
+# Example Apache virtual host for the JWKS endpoint.
+#
+# Adjust ServerName, filesystem paths, and certificate locations for your
+# environment, then enable it (Debian/Ubuntu: copy to
+# /etc/apache2/sites-available/jwks.conf and run "a2ensite jwks", or include
+# it from httpd.conf on other layouts) and reload Apache.
+#
+# Required modules: mod_ssl, mod_dir (provides FallbackResource).
+# PHP: works with mod_php out of the box; for php-fpm uncomment the
+# FilesMatch block below and point it at your fpm socket.
+
+<VirtualHost *:443>
+    ServerName auth.example.com
+
+    # Only public/ is exposed. Private keys live in <project>/working/keys,
+    # outside the document root, and are never served.
+    DocumentRoot /var/www/jwks/public
+
+    SSLEngine on
+    SSLCertificateFile    /etc/ssl/certs/auth.example.com.crt
+    SSLCertificateKeyFile /etc/ssl/private/auth.example.com.key
+    # Include the chain file if your certificate needs one:
+    # SSLCertificateChainFile /etc/ssl/certs/auth.example.com-chain.crt
+
+    <Directory /var/www/jwks/public>
+        AllowOverride None
+        Require all granted
+        # Route every request (notably /.well-known/jwks.json) to the
+        # front controller. This replaces the .htaccess file when set here.
+        FallbackResource /index.php
+    </Directory>
+
+    # php-fpm setups: uncomment and adjust the socket path.
+    # <FilesMatch "\.php$">
+    #     SetHandler "proxy:unix:/run/php/php8.4-fpm.sock|fcgi://localhost"
+    # </FilesMatch>
+
+    ErrorLog  ${APACHE_LOG_DIR}/jwks-error.log
+    CustomLog ${APACHE_LOG_DIR}/jwks-access.log combined
+</VirtualHost>
+
+# Redirect plain HTTP to HTTPS so the key set is only ever fetched securely.
+<VirtualHost *:80>
+    ServerName auth.example.com
+    Redirect permanent / https://auth.example.com/
+</VirtualHost>
