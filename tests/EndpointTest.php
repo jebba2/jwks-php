@@ -7,7 +7,9 @@ namespace Jwks\Tests;
 use Jwks\Endpoint;
 use Jwks\JwksBuilder;
 use Jwks\KeyGenerator;
+use Jwks\KeyLifecycle;
 use Jwks\KeyStore;
+use Jwks\RotationPolicy;
 use PHPUnit\Framework\TestCase;
 
 final class EndpointTest extends TestCase
@@ -31,12 +33,22 @@ final class EndpointTest extends TestCase
         }
     }
 
-    private function endpointWithOneKey(): Endpoint
+    private function endpoint(): Endpoint
     {
         $store = new KeyStore($this->directory);
-        $store->add(new KeyGenerator()->generate());
+        $policy = new RotationPolicy(keyLifetime: 3000, rotationBuffer: 1000, timeUntilUse: 300);
 
-        return new Endpoint(new JwksBuilder($store));
+        return new Endpoint(
+            new JwksBuilder($store),
+            new KeyLifecycle($store, new KeyGenerator(), $policy),
+        );
+    }
+
+    private function endpointWithOneKey(): Endpoint
+    {
+        new KeyStore($this->directory)->add(new KeyGenerator()->generate());
+
+        return $this->endpoint();
     }
 
     public function testServesKeySetAtWellKnownPath(): void
@@ -96,6 +108,26 @@ final class EndpointTest extends TestCase
         $this->assertSame(404, $response['status']);
         $this->assertSame('application/json', $response['headers']['Content-Type']);
         $this->assertJson($response['body']);
+    }
+
+    public function testHealthzReportsOkForHealthyKeySet(): void
+    {
+        $now = time();
+        new KeyStore($this->directory)->add(new KeyGenerator()->generate(), $now - 10, $now + 3000);
+
+        $response = $this->endpoint()->handle('GET', '/healthz');
+
+        $this->assertSame(200, $response['status']);
+        $this->assertSame('{"status":"ok"}', $response['body']);
+        $this->assertSame('no-store', $response['headers']['Cache-Control']);
+    }
+
+    public function testHealthzReports503WithoutDetailWhenDegraded(): void
+    {
+        $response = $this->endpoint()->handle('GET', '/healthz');
+
+        $this->assertSame(503, $response['status']);
+        $this->assertSame('{"status":"degraded"}', $response['body']);
     }
 
     public function testResponsesAllowCrossOriginReads(): void

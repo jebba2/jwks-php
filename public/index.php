@@ -12,8 +12,11 @@ declare(strict_types=1);
 use Jwks\Endpoint;
 use Jwks\EnvFile;
 use Jwks\JwksBuilder;
+use Jwks\KeyGenerator;
+use Jwks\KeyLifecycle;
 use Jwks\KeyStore;
 use Jwks\Logger;
+use Jwks\RotationPolicy;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
@@ -33,7 +36,11 @@ try {
         $keysDirectory = dirname(__DIR__) . '/working/keys';
     }
 
-    $endpoint = new Endpoint(new JwksBuilder(new KeyStore($keysDirectory)));
+    $store = new KeyStore($keysDirectory);
+    $endpoint = new Endpoint(
+        new JwksBuilder($store),
+        new KeyLifecycle($store, KeyGenerator::fromEnvironment(), RotationPolicy::fromEnvironment()),
+    );
     $response = $endpoint->handle(
         is_string($method) ? $method : 'GET',
         is_string($uri) ? $uri : '/',

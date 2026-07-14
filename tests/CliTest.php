@@ -114,7 +114,7 @@ final class CliTest extends TestCase
         $this->assertNotSame('', $this->streamContents($this->err));
     }
 
-    public function testListPrintsOneKidPerLine(): void
+    public function testListPrintsOneKeyPerLineWithItsState(): void
     {
         $store = new KeyStore($this->directory);
         $firstKid = $store->add(new KeyGenerator()->generate());
@@ -124,8 +124,30 @@ final class CliTest extends TestCase
 
         $this->assertSame(0, $exitCode);
         $output = $this->streamContents($this->out);
-        $this->assertStringContainsString($firstKid . "\n", $output);
-        $this->assertStringContainsString($secondKid . "\n", $output);
+        $this->assertMatchesRegularExpression('/^' . preg_quote($firstKid, '/') . '  /m', $output);
+        $this->assertMatchesRegularExpression('/^' . preg_quote($secondKid, '/') . '  /m', $output);
+        $this->assertSame(2, substr_count($output, "\n"));
+    }
+
+    public function testListShowsEachLifecycleState(): void
+    {
+        $now = time();
+        $store = new KeyStore($this->directory);
+        $legacy = $store->add(new KeyGenerator()->generate());
+        $pending = $store->add(new KeyGenerator()->generate(), $now + 3600, $now + 7200);
+        $active = $store->add(new KeyGenerator()->generate(), $now - 3600, $now + 7200);
+        $expired = $store->add(new KeyGenerator()->generate(), $now - 7200, $now - 3600);
+
+        $this->cli()->run(['jwks', 'list']);
+
+        $output = $this->streamContents($this->out);
+        $this->assertStringContainsString("$legacy  legacy", $output);
+        $this->assertStringContainsString('awaiting first rotation', $output);
+        $this->assertStringContainsString("$pending  pending", $output);
+        $this->assertStringContainsString('usable from', $output);
+        $this->assertStringContainsString("$active  active", $output);
+        $this->assertStringContainsString('expires', $output);
+        $this->assertStringContainsString("$expired  expired", $output);
     }
 
     public function testListMentionsWhenStoreIsEmpty(): void

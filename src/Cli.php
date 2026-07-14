@@ -18,7 +18,7 @@ final class Cli
 
         Commands:
           generate [bits]   Generate a new RSA signing key (default 2048 bits) and add it to the key set
-          list              List the kid of every key in the key set
+          list              List every key with its lifecycle state (legacy/pending/active/expired)
           retire <kid>      Permanently remove a key from the key set
           rotate            Run one rotation pass: schedule legacy keys, generate successors, purge expired keys
           show              Print the public JWKS document as JSON
@@ -112,7 +112,7 @@ final class Cli
     }
 
     /**
-     * Prints the kid of every stored key, one per line.
+     * Prints every stored key with its lifecycle state, one per line.
      */
     private function listKeys(): int
     {
@@ -123,11 +123,36 @@ final class Cli
             return 0;
         }
 
+        $now = time();
         foreach ($kids as $kid) {
-            fwrite($this->out, $kid . "\n");
+            fwrite($this->out, $this->describeKey($kid, $now) . "\n");
         }
 
         return 0;
+    }
+
+    /**
+     * Formats one key's list line: kid, lifecycle state, timing detail.
+     */
+    private function describeKey(string $kid, int $now): string
+    {
+        $metadata = $this->store->metadata($kid);
+        [$state, $detail] = match (true) {
+            $metadata === null => ['legacy', 'awaiting first rotation'],
+            $now < $metadata['notBefore'] => ['pending', 'usable from ' . self::timestamp($metadata['notBefore'])],
+            $now < $metadata['expiresAt'] => ['active', 'expires ' . self::timestamp($metadata['expiresAt'])],
+            default => ['expired', 'since ' . self::timestamp($metadata['expiresAt'])],
+        };
+
+        return $kid . '  ' . str_pad($state, 7) . '  ' . $detail;
+    }
+
+    /**
+     * Formats a unix timestamp the same way the log does: UTC ISO-8601.
+     */
+    private static function timestamp(int $unixTime): string
+    {
+        return gmdate('Y-m-d\TH:i:sP', $unixTime);
     }
 
     /**

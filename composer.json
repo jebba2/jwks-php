@@ -2,9 +2,9 @@
     "name": "jwks/jwks",
     "description": "JWKS (JSON Web Key Set) service: generates RSA signing keys and serves the public key set at /.well-known/jwks.json",
     "type": "project",
-    "license": "proprietary",
+    "license": "MIT",
     "require": {
-        "php": ">=8.3",
+        "php": ">=8.4",
         "ext-openssl": "*",
         "ext-json": "*"
     },

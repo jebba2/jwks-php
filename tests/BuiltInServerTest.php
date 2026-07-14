@@ -208,6 +208,19 @@ final class BuiltInServerTest extends TestCase
         $this->assertSame(404, $response['status']);
     }
 
+    public function testHealthzOverHttp(): void
+    {
+        $degraded = $this->httpGet('/healthz');
+        $this->assertSame(503, $degraded['status']);
+
+        $now = time();
+        new KeyStore($this->directory)->add(new KeyGenerator()->generate(), $now - 10, $now + 2592000);
+
+        $healthy = $this->httpGet('/healthz');
+        $this->assertSame(200, $healthy['status']);
+        $this->assertSame('{"status":"ok"}', $healthy['body']);
+    }
+
     public function testEndpointErrorsReturnJson500AndAreLogged(): void
     {
         mkdir($this->directory, 0o700, true);

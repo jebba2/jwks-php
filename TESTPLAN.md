@@ -7,9 +7,10 @@ through this list.
 
 ## Automated checks
 
-- [ ] `composer test` — full PHPUnit suite passes (127 tests, includes real end-to-end built-in-server test)
+- [ ] `composer test` — full PHPUnit suite passes (131 tests, includes real end-to-end built-in-server test)
 - [ ] `composer stan` — phpstan level 9 reports no errors
 - [ ] `composer cs` — phpcs reports no PSR-12 violations
+- [ ] GitHub Actions CI is green (runs `composer check` on every push to main and every PR)
 
 ## CLI: bin/jwks
 
@@ -25,7 +26,7 @@ through this list.
 
 ### list
 
-- [ ] With keys present, `bin/jwks list` prints one kid per line and exits 0
+- [ ] With keys present, `bin/jwks list` prints one line per key — `<kid>  <state>  <detail>` with state `legacy`/`pending`/`active`/`expired` — and exits 0
 - [ ] With no keys, `bin/jwks list` prints `No keys in the key set…` and exits 0
 
 ### show
@@ -93,6 +94,7 @@ through this list.
 - [ ] `curl -i http://127.0.0.1:8080/` returns `200` with the same key set
 - [ ] Keys with a rotation sidecar carry an `exp` member in the JWKS; expired keys are absent from the document
 - [ ] Responses carry `Access-Control-Allow-Origin: *`
+- [ ] `curl -i http://127.0.0.1:8080/healthz` returns `200 {"status":"ok"}` when healthy, `503 {"status":"degraded"}` when not, with `Cache-Control: no-store` and no reason detail in the body
 - [ ] `curl -i http://127.0.0.1:8080/anything-else` returns `404` with a JSON error body
 - [ ] `curl -i -X POST http://127.0.0.1:8080/.well-known/jwks.json` returns `405` with `Allow: GET, HEAD`
 - [ ] `curl -I http://127.0.0.1:8080/.well-known/jwks.json` (HEAD) returns `200`

@@ -14,6 +14,13 @@ final class Endpoint
     public const string KEY_SET_PATH = '/.well-known/jwks.json';
 
     /**
+     * Up/degraded signal for external HTTP monitors; an empty-but-valid
+     * key set still returns 200 on the key-set paths, so uptime checks
+     * need this instead.
+     */
+    public const string HEALTH_PATH = '/healthz';
+
+    /**
      * Verifiers may cache the key set for this long; RotationPolicy keeps
      * every key published at least this long before it signs anything.
      */
@@ -30,8 +37,10 @@ final class Endpoint
         'Access-Control-Allow-Origin' => '*',
     ];
 
-    public function __construct(private readonly JwksBuilder $builder)
-    {
+    public function __construct(
+        private readonly JwksBuilder $builder,
+        private readonly KeyLifecycle $lifecycle,
+    ) {
     }
 
     /**
@@ -49,9 +58,22 @@ final class Endpoint
             ];
         }
 
+        $path = parse_url($uri, PHP_URL_PATH);
+
+        if ($path === self::HEALTH_PATH) {
+            // Degraded reasons stay in "jwks status"; the wire only carries
+            // up/degraded so operational detail is not public.
+            $healthy = $this->lifecycle->healthProblems() === [];
+
+            return [
+                'status' => $healthy ? 200 : 503,
+                'headers' => self::COMMON_HEADERS + ['Cache-Control' => 'no-store'],
+                'body' => $healthy ? '{"status":"ok"}' : '{"status":"degraded"}',
+            ];
+        }
+
         // The key set is served at the RFC 8615 well-known path and, for
         // convenience, at the site root.
-        $path = parse_url($uri, PHP_URL_PATH);
         if (!in_array($path, [self::KEY_SET_PATH, '/'], true)) {
             return [
                 'status' => 404,

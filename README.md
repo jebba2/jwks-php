@@ -26,12 +26,14 @@ management. Install Composer by following the instructions at
 composer install
 ```
 
-Requirements: PHP >= 8.3 with the `openssl` and `json` extensions.
+Requirements: PHP >= 8.4 with the `openssl` and `json` extensions (the code
+uses PHP 8.4 syntax such as method calls on `new` without parentheses).
 
 Optionally copy [.env.example](.env.example) to `.env` at the project root
 to configure the service (key directory, rotation timing, key size). Both
 the CLI and the web endpoint read it; real environment variables always win
-over the file.
+over the file. Each line is `KEY=VALUE` — inline `#` comments are not
+supported (the `#` and everything after it become part of the value).
 
 ## CLI commands
 
@@ -40,7 +42,7 @@ All key management goes through `bin/jwks`:
 | Command | Purpose |
 | --- | --- |
 | `bin/jwks generate [bits]` | Generate a new RSA signing key (default `JWKS_KEY_BITS` or 2048 bits, range 2048–8192) and add it to the key set |
-| `bin/jwks list` | List the `kid` of every key in the key set |
+| `bin/jwks list` | List every key with its lifecycle state (`legacy`/`pending`/`active`/`expired`) and timing |
 | `bin/jwks retire <kid>` | Permanently remove a key from the key set |
 | `bin/jwks rotate` | Run one rotation pass: schedule legacy keys for replacement, generate a successor when needed, purge long-expired keys |
 | `bin/jwks show` | Print the public JWKS document as JSON |
@@ -125,6 +127,19 @@ kid:
 bin/jwks signing-key     # prints: <kid> <path-to-private-pem>
 ```
 
+For example, with `firebase/php-jwt` in the issuing application:
+
+```php
+[$kid, $pemPath] = explode(' ', trim(shell_exec('/var/www/jwks/bin/jwks signing-key')), 2);
+
+$jwt = Firebase\JWT\JWT::encode(
+    ['iss' => 'https://your-host', 'sub' => $userId, 'exp' => time() + 3600],
+    file_get_contents($pemPath),
+    'RS256',
+    $kid, // verifiers use the kid header to pick the key from the JWKS
+);
+```
+
 Rotation timing and key size are configurable through environment variables,
 set in the real environment or in a `.env` file at the project root (copy
 [.env.example](.env.example)); the real environment wins:
@@ -144,7 +159,8 @@ revoking a compromised key immediately).
 
 Concurrent rotation passes serialize on `rotate.lock` in the keys directory,
 so an overlapping cron run and manual rotate cannot both generate a
-successor.
+successor. The lock uses `flock`, so the keys directory must live on a
+local filesystem — one host, not NFS.
 
 ### Monitoring
 
@@ -155,6 +171,11 @@ the newest key inside its final rotation buffer with no successor). Every
 degraded state means the rotate cron is missing, dead, or has not run yet.
 Without monitoring, a dead cron looks fine for ~23 days and then the key
 set expires and every verifier breaks at once.
+
+External uptime monitors can use `GET /healthz` instead: it returns
+`200 {"status":"ok"}` or `503 {"status":"degraded"}` with
+`Cache-Control: no-store`. The degraded reasons deliberately stay off the
+wire — run `bin/jwks status` on the box for detail.
 
 ## Logging
 
