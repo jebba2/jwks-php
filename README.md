@@ -81,11 +81,12 @@ runs under Apache.
 5. Install [docs/jwks-logrotate.example](docs/jwks-logrotate.example) as
    `/etc/logrotate.d/jwks` and point your monitoring at `bin/jwks status`
    (see [Monitoring](#monitoring)).
-6. Decide on key backups: either back up `working/keys` securely (the PEMs
-   are the only copies, and kids are deterministic thumbprints, so restoring
-   the files restores the identical key set), or accept that after a disk
-   loss every token signed before the loss stays unverifiable until it
-   expires.
+6. Decide on key backups: either back up the whole `working/keys` directory
+   securely — both the `.pem` files and the `.json` rotation sidecars; a
+   backup that only grabs `*.pem` silently loses every rotation schedule —
+   or accept that after a disk loss every token signed before the loss
+   stays unverifiable until it expires. (Kids are deterministic
+   thumbprints, so restoring the files restores the identical key set.)
 7. Verify: `curl https://your-host/.well-known/jwks.json`.
 
 The `DocumentRoot` must point at `public/` — the project root and

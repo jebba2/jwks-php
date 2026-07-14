@@ -5,7 +5,8 @@
 # /etc/apache2/sites-available/jwks.conf and run "a2ensite jwks", or include
 # it from httpd.conf on other layouts) and reload Apache.
 #
-# Required modules: mod_ssl, mod_dir (provides FallbackResource).
+# Required modules: mod_ssl, mod_dir (provides FallbackResource),
+# mod_headers (for Strict-Transport-Security).
 # PHP: works with mod_php out of the box; for php-fpm uncomment the
 # FilesMatch block below and point it at your fpm socket.
 
@@ -21,6 +22,9 @@
     SSLCertificateKeyFile /etc/ssl/private/auth.example.com.key
     # Include the chain file if your certificate needs one:
     # SSLCertificateChainFile /etc/ssl/certs/auth.example.com-chain.crt
+
+    # Verifiers must only ever fetch keys over HTTPS.
+    Header always set Strict-Transport-Security "max-age=31536000"
 
     <Directory /var/www/jwks/public>
         AllowOverride None

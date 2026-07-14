@@ -30,11 +30,13 @@ final class Endpoint
 
     /**
      * JWKS documents hold only public keys, so browser-based verifiers may
-     * read them cross-origin.
+     * read them cross-origin; nosniff stops anything from second-guessing
+     * the JSON content type.
      */
     private const array COMMON_HEADERS = [
         'Content-Type' => 'application/json',
         'Access-Control-Allow-Origin' => '*',
+        'X-Content-Type-Options' => 'nosniff',
     ];
 
     public function __construct(

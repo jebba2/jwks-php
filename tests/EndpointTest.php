@@ -143,6 +143,17 @@ final class EndpointTest extends TestCase
         $this->assertSame('*', $notAllowed['headers']['Access-Control-Allow-Origin']);
     }
 
+    public function testResponsesForbidContentTypeSniffing(): void
+    {
+        $endpoint = $this->endpointWithOneKey();
+
+        $keySet = $endpoint->handle('GET', '/.well-known/jwks.json');
+        $notFound = $endpoint->handle('GET', '/other');
+
+        $this->assertSame('nosniff', $keySet['headers']['X-Content-Type-Options']);
+        $this->assertSame('nosniff', $notFound['headers']['X-Content-Type-Options']);
+    }
+
     public function testDisallowedMethodReturns405WithAllowHeader(): void
     {
         $response = $this->endpointWithOneKey()->handle('POST', '/.well-known/jwks.json');
