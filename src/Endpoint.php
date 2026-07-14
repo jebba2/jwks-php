@@ -14,10 +14,12 @@ final class Endpoint
     public const string KEY_SET_PATH = '/.well-known/jwks.json';
 
     /**
-     * Verifiers may cache the key set briefly; keep the window shorter than
-     * any key-rotation overlap period.
+     * Verifiers may cache the key set for this long; RotationPolicy keeps
+     * every key published at least this long before it signs anything.
      */
-    private const string CACHE_CONTROL = 'public, max-age=300';
+    public const int CACHE_MAX_AGE_SECONDS = 300;
+
+    private const string CACHE_CONTROL = 'public, max-age=' . self::CACHE_MAX_AGE_SECONDS;
 
     public function __construct(private readonly JwksBuilder $builder)
     {
@@ -41,8 +43,10 @@ final class Endpoint
             ];
         }
 
+        // The key set is served at the RFC 8615 well-known path and, for
+        // convenience, at the site root.
         $path = parse_url($uri, PHP_URL_PATH);
-        if ($path !== self::KEY_SET_PATH) {
+        if (!in_array($path, [self::KEY_SET_PATH, '/'], true)) {
             return [
                 'status' => 404,
                 'headers' => ['Content-Type' => 'application/json'],

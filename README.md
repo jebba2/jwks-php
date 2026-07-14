@@ -2,14 +2,18 @@
 
 Generates RSA signing keys and serves their public halves as a JSON Web Key
 Set (JWKS, [RFC 7517](https://www.rfc-editor.org/rfc/rfc7517)) at
-`/.well-known/jwks.json`, so token verifiers can fetch your public keys over
-HTTPS. Private keys never leave the server.
+`/.well-known/jwks.json` (and at `/` for convenience), so token verifiers can
+fetch your public keys over HTTPS. Private keys never leave the server.
 
 - Keys are RSA (2048-bit minimum) for `RS256` signatures.
 - Each key's `kid` is its [RFC 7638](https://www.rfc-editor.org/rfc/rfc7638)
   SHA-256 thumbprint, so kids are deterministic and collision-free.
+- Keys rotate automatically on a D2L-style schedule: 30-day lifetime, a
+  successor 7 days before expiry, and a 1-hour warm-up before a new key may
+  sign. See [Key rotation](#key-rotation).
 - Private keys are stored as PEM files in `working/keys/` (owner-only
-  permissions, outside the web document root). Override the location with the
+  permissions, outside the web document root), each with a `<kid>.json`
+  sidecar recording its rotation schedule. Override the location with the
   `JWKS_KEYS_DIR` environment variable.
 
 ## Setup
@@ -24,16 +28,23 @@ composer install
 
 Requirements: PHP >= 8.3 with the `openssl` and `json` extensions.
 
+Optionally copy [.env.example](.env.example) to `.env` at the project root
+to configure the service (key directory, rotation timing, key size). Both
+the CLI and the web endpoint read it; real environment variables always win
+over the file.
+
 ## CLI commands
 
 All key management goes through `bin/jwks`:
 
 | Command | Purpose |
 | --- | --- |
-| `bin/jwks generate [bits]` | Generate a new RSA signing key (default 2048 bits, minimum 2048) and add it to the key set |
+| `bin/jwks generate [bits]` | Generate a new RSA signing key (default `JWKS_KEY_BITS` or 2048 bits, minimum 2048) and add it to the key set |
 | `bin/jwks list` | List the `kid` of every key in the key set |
 | `bin/jwks retire <kid>` | Permanently remove a key from the key set |
+| `bin/jwks rotate` | Run one rotation pass: schedule legacy keys for replacement, generate a successor when needed, purge long-expired keys |
 | `bin/jwks show` | Print the public JWKS document as JSON |
+| `bin/jwks signing-key` | Print the `kid` and PEM path of the key the token issuer should sign with |
 | `bin/jwks help` | Show usage |
 
 Exit code is `0` on success and `1` on any error; errors are written to
@@ -62,7 +73,9 @@ runs under Apache.
 3. Copy [docs/apache-vhost.conf.example](docs/apache-vhost.conf.example) into
    your Apache config, adjust `ServerName`, `DocumentRoot`, and the paths to
    your existing HTTPS certificate, then reload Apache.
-4. Verify: `curl https://your-host/.well-known/jwks.json`.
+4. Install the hourly `bin/jwks rotate` cron entry (see
+   [Key rotation](#key-rotation)) as the same user that owns `working/keys`.
+5. Verify: `curl https://your-host/.well-known/jwks.json`.
 
 The `DocumentRoot` must point at `public/` — the project root and
 `working/keys` stay outside it, so private keys are never web-accessible.
@@ -74,12 +87,49 @@ the key set for up to 5 minutes.
 
 ## Key rotation
 
-1. `bin/jwks generate` — the new key is published alongside the old one
-   immediately.
-2. Start signing new tokens with the new key (`bin/jwks list` shows the kid;
-   the private PEM is `working/keys/<kid>.pem`).
-3. After every token signed with the old key has expired (plus the 5-minute
-   response cache window), remove it: `bin/jwks retire <old-kid>`.
+Rotation is automatic, modeled on how D2L Brightspace rotates its JWKS keys:
+every key expires 30 days after creation, a successor is generated 7 days
+before that expiry, and a new key signs nothing for its first hour so
+verifier caches (5-minute window) always see a key before its first token.
+Published keys carry their expiry as an `exp` member, as D2L's do.
+
+Run one rotation pass per hour from cron on the server:
+
+```cron
+0 * * * * /var/www/jwks/bin/jwks rotate >> /var/www/jwks/working/rotate.log 2>&1
+```
+
+`rotate` is idempotent and only acts when something needs doing:
+
+- Keys created before rotation existed ("legacy" keys, no `<kid>.json`
+  sidecar) are scheduled for replacement: a successor is generated at once
+  and the legacy key expires 7 days later.
+- A successor is generated when the newest key enters its final 7 days; both
+  keys are served during the overlap.
+- Keys expired more than 7 days ago are deleted, PEM and sidecar.
+
+The token issuer should ask which key to sign with instead of hardcoding a
+kid:
+
+```sh
+bin/jwks signing-key     # prints: <kid> <path-to-private-pem>
+```
+
+Rotation timing and key size are configurable through environment variables,
+set in the real environment or in a `.env` file at the project root (copy
+[.env.example](.env.example)); the real environment wins:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `JWKS_KEY_LIFETIME` | `2592000` (30 d) | Seconds a key lives after creation |
+| `JWKS_ROTATION_BUFFER` | `604800` (7 d) | Seconds before expiry that a successor appears; also the purge grace period |
+| `JWKS_TIME_UNTIL_USE` | `3600` (1 h) | Seconds a new key is published before it may sign |
+| `JWKS_KEY_BITS` | `2048` | RSA size of newly generated keys (minimum 2048) |
+
+The rotation buffer must exceed the lifetime of any token you sign — a token
+must always expire before the key that signed it leaves the key set. Manual
+`bin/jwks generate` and `bin/jwks retire` still work for emergencies (e.g.
+revoking a compromised key immediately).
 
 ## Development checks
 
@@ -96,7 +146,7 @@ The manual test walkthrough lives in [TESTPLAN.md](TESTPLAN.md).
 
 | Path | Purpose |
 | --- | --- |
-| `src/` | Library code (key generation, key store, JWKS building, HTTP endpoint, CLI) |
+| `src/` | Library code (key generation, key store, rotation lifecycle, JWKS building, HTTP endpoint, CLI) |
 | `public/` | Web document root — `index.php` front controller only |
 | `bin/` | `jwks` CLI and `serve` dev-server launcher |
 | `docs/` | Apache virtual-host example |

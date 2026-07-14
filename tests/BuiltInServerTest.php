@@ -159,6 +159,45 @@ final class BuiltInServerTest extends TestCase
         $this->assertArrayNotHasKey('d', $decoded['keys'][0], 'private material must never be served');
     }
 
+    public function testServesKeySetAtRootOverHttp(): void
+    {
+        $store = new KeyStore($this->directory);
+        $kid = $store->add(new KeyGenerator()->generate());
+
+        $response = $this->httpGet('/');
+
+        $this->assertSame(200, $response['status']);
+
+        $decoded = json_decode($response['body'], true);
+        $this->assertIsArray($decoded);
+        $this->assertArrayHasKey('keys', $decoded);
+        $this->assertIsArray($decoded['keys']);
+        $this->assertCount(1, $decoded['keys']);
+        $this->assertIsArray($decoded['keys'][0]);
+        $this->assertSame($kid, $decoded['keys'][0]['kid']);
+    }
+
+    public function testExpiredKeysAreNotServedAndActiveKeysPublishExpiry(): void
+    {
+        $store = new KeyStore($this->directory);
+        $now = time();
+        $expiredKid = $store->add(new KeyGenerator()->generate(), notBefore: 0, expiresAt: $now - 60);
+        $activeKid = $store->add(new KeyGenerator()->generate(), notBefore: 0, expiresAt: $now + 3600);
+
+        $response = $this->httpGet('/.well-known/jwks.json');
+
+        $this->assertSame(200, $response['status']);
+        $decoded = json_decode($response['body'], true);
+        $this->assertIsArray($decoded);
+        $this->assertArrayHasKey('keys', $decoded);
+        $this->assertIsArray($decoded['keys']);
+        $this->assertCount(1, $decoded['keys']);
+        $this->assertIsArray($decoded['keys'][0]);
+        $this->assertSame($activeKid, $decoded['keys'][0]['kid']);
+        $this->assertSame($now + 3600, $decoded['keys'][0]['exp']);
+        $this->assertStringNotContainsString($expiredKid, $response['body']);
+    }
+
     public function testUnknownPathReturns404OverHttp(): void
     {
         $response = $this->httpGet('/nope');

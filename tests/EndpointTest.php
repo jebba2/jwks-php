@@ -53,6 +53,20 @@ final class EndpointTest extends TestCase
         $this->assertCount(1, $decoded['keys']);
     }
 
+    public function testServesKeySetAtRootPath(): void
+    {
+        $response = $this->endpointWithOneKey()->handle('GET', '/');
+
+        $this->assertSame(200, $response['status']);
+        $this->assertSame('application/json', $response['headers']['Content-Type']);
+
+        $decoded = json_decode($response['body'], true);
+        $this->assertIsArray($decoded);
+        $this->assertArrayHasKey('keys', $decoded);
+        $this->assertIsArray($decoded['keys']);
+        $this->assertCount(1, $decoded['keys']);
+    }
+
     public function testKeySetResponseIsCacheable(): void
     {
         $response = $this->endpointWithOneKey()->handle('GET', '/.well-known/jwks.json');

@@ -7,7 +7,7 @@ through this list.
 
 ## Automated checks
 
-- [ ] `composer test` — full PHPUnit suite passes (47 tests, includes real end-to-end built-in-server test)
+- [ ] `composer test` — full PHPUnit suite passes (103 tests, includes real end-to-end built-in-server test)
 - [ ] `composer stan` — phpstan level 9 reports no errors
 - [ ] `composer cs` — phpcs reports no PSR-12 violations
 
@@ -20,6 +20,7 @@ through this list.
 - [ ] `bin/jwks generate 3072` creates a 3072-bit key (`openssl rsa -in working/keys/<kid>.pem -noout -text | head -1` shows 3072)
 - [ ] `bin/jwks generate 1024` prints an error to stderr and exits 1 (below 2048-bit minimum)
 - [ ] `bin/jwks generate huge` prints an error to stderr and exits 1 (non-numeric bits)
+- [ ] With `JWKS_KEY_BITS=3072` (environment or `.env`), `bin/jwks generate` with no argument creates a 3072-bit key; an explicit `[bits]` argument still wins
 
 ### list
 
@@ -33,9 +34,29 @@ through this list.
 
 ### retire
 
-- [ ] `bin/jwks retire <kid>` removes `working/keys/<kid>.pem`, prints confirmation, exits 0
+- [ ] `bin/jwks retire <kid>` removes `working/keys/<kid>.pem` and its `<kid>.json` sidecar, prints confirmation, exits 0
 - [ ] `bin/jwks retire unknown-kid` prints an error to stderr and exits 1
 - [ ] `bin/jwks retire` (no kid) prints an error to stderr and exits 1
+
+### rotate
+
+- [ ] On an empty key set, `bin/jwks rotate` prints `Generated key <kid>` and creates PEM + `<kid>.json` sidecar (both `0600`)
+- [ ] An immediate second `bin/jwks rotate` prints `Key set is current; nothing to rotate.`
+- [ ] With a legacy key (PEM without sidecar), `bin/jwks rotate` prints `Scheduled legacy key <kid> for replacement` plus `Generated key <kid>` and both keys remain
+- [ ] A key expired more than `JWKS_ROTATION_BUFFER` ago is purged: `Purged expired key <kid>`, PEM and sidecar gone
+- [ ] `JWKS_KEY_LIFETIME` / `JWKS_ROTATION_BUFFER` / `JWKS_TIME_UNTIL_USE` override the timing; invalid values print an error and exit 1
+
+### signing-key
+
+- [ ] `bin/jwks signing-key` prints `<kid> <pem-path>` of the newest usable key and exits 0
+- [ ] With no keys, `bin/jwks signing-key` prints an error to stderr and exits 1
+
+## Configuration via .env
+
+- [ ] With `.env` at the project root setting `JWKS_KEYS_DIR`, both `bin/jwks` and the endpoint use that directory
+- [ ] A real environment variable overrides the same variable in `.env` (e.g. `JWKS_KEY_BITS=2048 bin/jwks generate` beats `.env`'s 3072)
+- [ ] A malformed `.env` line makes `bin/jwks` print an error naming the line number and exit 1
+- [ ] With no `.env` file, everything runs on defaults
 
 ### help / usage
 
@@ -49,6 +70,8 @@ through this list.
 - [ ] `bin/serve 127.0.0.1:9000` serves on the given address
 - [ ] `composer serve` also starts the server
 - [ ] `curl -i http://127.0.0.1:8080/.well-known/jwks.json` returns `200`, `Content-Type: application/json`, `Cache-Control: public, max-age=300`, and the key set
+- [ ] `curl -i http://127.0.0.1:8080/` returns `200` with the same key set
+- [ ] Keys with a rotation sidecar carry an `exp` member in the JWKS; expired keys are absent from the document
 - [ ] `curl -i http://127.0.0.1:8080/anything-else` returns `404` with a JSON error body
 - [ ] `curl -i -X POST http://127.0.0.1:8080/.well-known/jwks.json` returns `405` with `Allow: GET, HEAD`
 - [ ] `curl -I http://127.0.0.1:8080/.well-known/jwks.json` (HEAD) returns `200`
@@ -57,6 +80,7 @@ through this list.
 
 - [ ] Virtual host from `docs/apache-vhost.conf.example` installed with real `ServerName`, `DocumentRoot`, and certificate paths; Apache reloads without errors
 - [ ] `curl -i https://<host>/.well-known/jwks.json` returns `200` with the key set over HTTPS
+- [ ] `curl -i https://<host>/` returns `200` with the same key set
 - [ ] `curl -i http://<host>/.well-known/jwks.json` redirects (301) to HTTPS
 - [ ] `curl -i https://<host>/index.php` returns `404` JSON (front controller handles it; nothing else is exposed)
 - [ ] Private keys are not reachable: `curl -i https://<host>/../working/keys/` and any path outside `public/` return errors
@@ -64,5 +88,8 @@ through this list.
 
 ## Key rotation walkthrough
 
-- [ ] With key A live, `bin/jwks generate` adds key B; endpoint immediately serves both A and B
-- [ ] `bin/jwks retire <kid-A>` removes A; endpoint serves only B (allow up to 5 minutes for verifier caches)
+- [ ] Hourly cron entry installed: `0 * * * * /var/www/jwks/bin/jwks rotate >> /var/www/jwks/working/rotate.log 2>&1`; output appears in the log
+- [ ] When the newest key enters its final rotation-buffer window, `rotate` generates a successor; endpoint serves both during the overlap
+- [ ] The token issuer signs with whatever `bin/jwks signing-key` reports; a brand-new key is not reported until it has been published for `JWKS_TIME_UNTIL_USE`
+- [ ] One rotation buffer after a key expires, `rotate` purges it from `working/keys`
+- [ ] Emergency path still works: `bin/jwks retire <kid>` removes a compromised key immediately; endpoint stops serving it

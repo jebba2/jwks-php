@@ -18,5 +18,5 @@ if ! command -v php >/dev/null 2>&1; then
     exit 1
 fi
 
-echo "Serving JWKS at http://$ADDRESS/.well-known/jwks.json (Ctrl-C to stop)"
+echo "Serving JWKS at http://$ADDRESS/ and http://$ADDRESS/.well-known/jwks.json (Ctrl-C to stop)"
 exec php -S "$ADDRESS" -t public public/index.php

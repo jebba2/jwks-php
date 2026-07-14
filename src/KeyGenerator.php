@@ -17,16 +17,39 @@ final class KeyGenerator
      */
     private const int MINIMUM_BITS = 2048;
 
-    /**
-     * Generates a new RSA private key and returns it as a PEM string.
-     */
-    public function generate(int $bits = self::MINIMUM_BITS): string
+    public function __construct(private readonly int $defaultBits = self::MINIMUM_BITS)
     {
-        if ($bits < self::MINIMUM_BITS) {
+        self::assertAcceptableBits($defaultBits);
+    }
+
+    /**
+     * Builds a generator whose default key size comes from the
+     * JWKS_KEY_BITS environment variable (minimum 2048 when unset).
+     */
+    public static function fromEnvironment(): self
+    {
+        $value = getenv('JWKS_KEY_BITS');
+        if (!is_string($value) || $value === '') {
+            return new self();
+        }
+
+        if (!ctype_digit($value)) {
             throw new InvalidArgumentException(
-                sprintf('RSA keys must be at least %d bits, got %d', self::MINIMUM_BITS, $bits),
+                "JWKS_KEY_BITS must be a positive integer, got \"$value\"",
             );
         }
+
+        return new self((int) $value);
+    }
+
+    /**
+     * Generates a new RSA private key and returns it as a PEM string. With
+     * no argument the configured default size is used.
+     */
+    public function generate(?int $bits = null): string
+    {
+        $bits ??= $this->defaultBits;
+        self::assertAcceptableBits($bits);
 
         $key = openssl_pkey_new([
             'private_key_bits' => $bits,
@@ -41,6 +64,18 @@ final class KeyGenerator
         }
 
         return $pem;
+    }
+
+    /**
+     * Rejects key sizes below the RS256 production minimum.
+     */
+    private static function assertAcceptableBits(int $bits): void
+    {
+        if ($bits < self::MINIMUM_BITS) {
+            throw new InvalidArgumentException(
+                sprintf('RSA keys must be at least %d bits, got %d', self::MINIMUM_BITS, $bits),
+            );
+        }
     }
 
     /**

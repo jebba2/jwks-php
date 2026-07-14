@@ -61,6 +61,51 @@ final class JwksBuilderTest extends TestCase
         $this->assertSame(['kty', 'use', 'alg', 'kid', 'n', 'e'], array_keys($jwks['keys'][0]));
     }
 
+    public function testStampedKeysPublishTheirExpiry(): void
+    {
+        $store = new KeyStore($this->directory);
+        $store->add(new KeyGenerator()->generate(), notBefore: 1000, expiresAt: 2000);
+
+        $jwks = new JwksBuilder($store)->build(now: 1500);
+
+        $this->assertCount(1, $jwks['keys']);
+        $this->assertSame(2000, $jwks['keys'][0]['exp'] ?? null);
+    }
+
+    public function testExpiredKeysAreNotPublished(): void
+    {
+        $store = new KeyStore($this->directory);
+        $expiredKid = $store->add(new KeyGenerator()->generate(), notBefore: 1000, expiresAt: 2000);
+        $activeKid = $store->add(new KeyGenerator()->generate(), notBefore: 1000, expiresAt: 9000);
+
+        $jwks = new JwksBuilder($store)->build(now: 2000);
+
+        $kids = array_column($jwks['keys'], 'kid');
+        $this->assertSame([$activeKid], $kids);
+        $this->assertNotContains($expiredKid, $kids);
+    }
+
+    public function testUnstampedKeysArePublishedWithoutExpiry(): void
+    {
+        $store = new KeyStore($this->directory);
+        $store->add(new KeyGenerator()->generate());
+
+        $jwks = new JwksBuilder($store)->build();
+
+        $this->assertCount(1, $jwks['keys']);
+        $this->assertArrayNotHasKey('exp', $jwks['keys'][0]);
+    }
+
+    public function testKeysNotYetUsableAreStillPublished(): void
+    {
+        $store = new KeyStore($this->directory);
+        $kid = $store->add(new KeyGenerator()->generate(), notBefore: 5000, expiresAt: 9000);
+
+        $jwks = new JwksBuilder($store)->build(now: 1000);
+
+        $this->assertSame([$kid], array_column($jwks['keys'], 'kid'));
+    }
+
     public function testToJsonProducesValidJwksDocument(): void
     {
         $store = new KeyStore($this->directory);

@@ -20,10 +20,16 @@ final class Cli
           generate [bits]   Generate a new RSA signing key (default 2048 bits) and add it to the key set
           list              List the kid of every key in the key set
           retire <kid>      Permanently remove a key from the key set
+          rotate            Run one rotation pass: schedule legacy keys, generate successors, purge expired keys
           show              Print the public JWKS document as JSON
+          signing-key       Print the kid and PEM path of the key the token issuer should sign with
           help              Show this help text
 
         Keys are stored in working/keys (override with the JWKS_KEYS_DIR environment variable).
+        Rotation timing comes from JWKS_KEY_LIFETIME, JWKS_ROTATION_BUFFER and
+        JWKS_TIME_UNTIL_USE (seconds); new-key size comes from JWKS_KEY_BITS.
+        Settings may also live in a .env file at the project root (see .env.example);
+        real environment variables win over the file. Run rotate from cron to keep keys fresh.
 
         TEXT;
 
@@ -37,8 +43,13 @@ final class Cli
      * @param resource $out stream for normal command output
      * @param resource $err stream for error messages
      */
-    public function __construct(private readonly KeyStore $store, $out, $err)
-    {
+    public function __construct(
+        private readonly KeyStore $store,
+        private readonly RotationPolicy $policy,
+        private readonly KeyGenerator $generator,
+        $out,
+        $err,
+    ) {
         $this->out = $out;
         $this->err = $err;
     }
@@ -56,7 +67,9 @@ final class Cli
             'generate' => $this->generate($argv[2] ?? null),
             'list' => $this->listKeys(),
             'retire' => $this->retire($argv[2] ?? null),
+            'rotate' => $this->rotate(),
             'show' => $this->show(),
+            'signing-key' => $this->signingKey(),
             'help', '--help', '-h' => $this->printUsage($this->out, 0),
             default => $this->printUsage($this->err, 1),
         };
@@ -75,9 +88,14 @@ final class Cli
 
         try {
             $pem = $bitsArgument === null
-                ? new KeyGenerator()->generate()
-                : new KeyGenerator()->generate((int) $bitsArgument);
-            $kid = $this->store->add($pem);
+                ? $this->generator->generate()
+                : $this->generator->generate((int) $bitsArgument);
+            $now = time();
+            $kid = $this->store->add(
+                $pem,
+                $now + $this->policy->timeUntilUse,
+                $now + $this->policy->keyLifetime,
+            );
         } catch (InvalidArgumentException | RuntimeException $exception) {
             fwrite($this->err, 'Error: ' . $exception->getMessage() . "\n");
 
@@ -133,6 +151,52 @@ final class Cli
     }
 
     /**
+     * Runs one rotation pass and prints what changed.
+     */
+    private function rotate(): int
+    {
+        try {
+            $report = $this->lifecycle()->rotate();
+        } catch (InvalidArgumentException | RuntimeException $exception) {
+            fwrite($this->err, 'Error: ' . $exception->getMessage() . "\n");
+
+            return 1;
+        }
+
+        foreach ($report['stamped'] as $kid) {
+            fwrite($this->out, "Scheduled legacy key $kid for replacement\n");
+        }
+        if ($report['generated'] !== null) {
+            fwrite($this->out, "Generated key {$report['generated']}\n");
+        }
+        foreach ($report['purged'] as $kid) {
+            fwrite($this->out, "Purged expired key $kid\n");
+        }
+        if ($report['stamped'] === [] && $report['generated'] === null && $report['purged'] === []) {
+            fwrite($this->out, "Key set is current; nothing to rotate.\n");
+        }
+
+        return 0;
+    }
+
+    /**
+     * Prints the kid and PEM path of the key the token issuer should use.
+     */
+    private function signingKey(): int
+    {
+        $kid = $this->lifecycle()->signingKid();
+        if ($kid === null) {
+            fwrite($this->err, "Error: no usable signing key. Run \"jwks rotate\" to create one.\n");
+
+            return 1;
+        }
+
+        fwrite($this->out, $kid . ' ' . $this->store->pemPath($kid) . "\n");
+
+        return 0;
+    }
+
+    /**
      * Prints the public JWKS document.
      */
     private function show(): int
@@ -152,5 +216,13 @@ final class Cli
         fwrite($stream, self::USAGE);
 
         return $exitCode;
+    }
+
+    /**
+     * Builds the lifecycle manager the rotate and signing-key commands use.
+     */
+    private function lifecycle(): KeyLifecycle
+    {
+        return new KeyLifecycle($this->store, $this->generator, $this->policy);
     }
 }

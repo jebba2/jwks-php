@@ -148,4 +148,87 @@ final class KeyStoreTest extends TestCase
 
         $store->retire('does-not-exist');
     }
+
+    public function testAddWithLifecycleStampsWritesMetadata(): void
+    {
+        $store = new KeyStore($this->directory);
+
+        $kid = $store->add($this->fixturePem(), notBefore: 1000, expiresAt: 2000);
+
+        $this->assertSame(['notBefore' => 1000, 'expiresAt' => 2000], $store->metadata($kid));
+        $this->assertSame(0o600, fileperms($this->directory . '/' . $kid . '.json') & 0o777);
+    }
+
+    public function testAddRejectsPartialLifecycleStamps(): void
+    {
+        $store = new KeyStore($this->directory);
+
+        $this->expectException(InvalidArgumentException::class);
+
+        $store->add($this->fixturePem(), notBefore: 1000);
+    }
+
+    public function testMetadataIsNullForUnstampedKey(): void
+    {
+        $store = new KeyStore($this->directory);
+        $kid = $store->add($this->fixturePem());
+
+        $this->assertNull($store->metadata($kid));
+    }
+
+    public function testMetadataRejectsUnknownKid(): void
+    {
+        $store = new KeyStore($this->directory);
+
+        $this->expectException(RuntimeException::class);
+
+        $store->metadata('does-not-exist');
+    }
+
+    public function testStampAddsMetadataToExistingKey(): void
+    {
+        $store = new KeyStore($this->directory);
+        $kid = $store->add($this->fixturePem());
+
+        $store->stamp($kid, notBefore: 1000, expiresAt: 2000);
+
+        $this->assertSame(['notBefore' => 1000, 'expiresAt' => 2000], $store->metadata($kid));
+    }
+
+    public function testStampRejectsUnknownKid(): void
+    {
+        $store = new KeyStore($this->directory);
+
+        $this->expectException(RuntimeException::class);
+
+        $store->stamp('does-not-exist', notBefore: 1000, expiresAt: 2000);
+    }
+
+    public function testPemPathReturnsTheKeyFileLocation(): void
+    {
+        $store = new KeyStore($this->directory);
+        $kid = $store->add($this->fixturePem());
+
+        $this->assertSame($this->directory . '/' . $kid . '.pem', $store->pemPath($kid));
+    }
+
+    public function testPemPathRejectsUnknownKid(): void
+    {
+        $store = new KeyStore($this->directory);
+
+        $this->expectException(RuntimeException::class);
+
+        $store->pemPath('does-not-exist');
+    }
+
+    public function testRetireRemovesMetadataFile(): void
+    {
+        $store = new KeyStore($this->directory);
+        $kid = $store->add($this->fixturePem(), notBefore: 1000, expiresAt: 2000);
+
+        $store->retire($kid);
+
+        $this->assertFileDoesNotExist($this->directory . '/' . $kid . '.json');
+        $this->assertSame([], $store->kids());
+    }
 }

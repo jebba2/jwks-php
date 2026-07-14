@@ -9,19 +9,30 @@
 declare(strict_types=1);
 
 use Jwks\Cli;
+use Jwks\EnvFile;
+use Jwks\KeyGenerator;
 use Jwks\KeyStore;
+use Jwks\RotationPolicy;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
-
-$keysDirectory = getenv('JWKS_KEYS_DIR');
-if (!is_string($keysDirectory) || $keysDirectory === '') {
-    $keysDirectory = dirname(__DIR__) . '/working/keys';
-}
 
 /** @var list<string> $argv */
 
 try {
-    exit(new Cli(new KeyStore($keysDirectory), STDOUT, STDERR)->run($argv));
+    EnvFile::load(dirname(__DIR__) . '/.env');
+
+    $keysDirectory = getenv('JWKS_KEYS_DIR');
+    if (!is_string($keysDirectory) || $keysDirectory === '') {
+        $keysDirectory = dirname(__DIR__) . '/working/keys';
+    }
+
+    exit(new Cli(
+        new KeyStore($keysDirectory),
+        RotationPolicy::fromEnvironment(),
+        KeyGenerator::fromEnvironment(),
+        STDOUT,
+        STDERR,
+    )->run($argv));
 } catch (Throwable $exception) {
     fwrite(STDERR, 'Error: ' . $exception->getMessage() . "\n");
     exit(1);

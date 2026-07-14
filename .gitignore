@@ -1,3 +1,4 @@
 /vendor/
 /working/
-./CLAUDE.MD
+/CLAUDE.MD
+/.env
