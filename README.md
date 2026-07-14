@@ -39,12 +39,13 @@ All key management goes through `bin/jwks`:
 
 | Command | Purpose |
 | --- | --- |
-| `bin/jwks generate [bits]` | Generate a new RSA signing key (default `JWKS_KEY_BITS` or 2048 bits, minimum 2048) and add it to the key set |
+| `bin/jwks generate [bits]` | Generate a new RSA signing key (default `JWKS_KEY_BITS` or 2048 bits, range 2048–8192) and add it to the key set |
 | `bin/jwks list` | List the `kid` of every key in the key set |
 | `bin/jwks retire <kid>` | Permanently remove a key from the key set |
 | `bin/jwks rotate` | Run one rotation pass: schedule legacy keys for replacement, generate a successor when needed, purge long-expired keys |
 | `bin/jwks show` | Print the public JWKS document as JSON |
 | `bin/jwks signing-key` | Print the `kid` and PEM path of the key the token issuer should sign with |
+| `bin/jwks status` | Health check for monitoring: exit 0 when healthy, exit 1 with `DEGRADED:` reasons when not |
 | `bin/jwks help` | Show usage |
 
 Exit code is `0` on success and `1` on any error; errors are written to
@@ -75,7 +76,15 @@ runs under Apache.
    your existing HTTPS certificate, then reload Apache.
 4. Install the hourly `bin/jwks rotate` cron entry (see
    [Key rotation](#key-rotation)) as the same user that owns `working/keys`.
-5. Verify: `curl https://your-host/.well-known/jwks.json`.
+5. Install [docs/jwks-logrotate.example](docs/jwks-logrotate.example) as
+   `/etc/logrotate.d/jwks` and point your monitoring at `bin/jwks status`
+   (see [Monitoring](#monitoring)).
+6. Decide on key backups: either back up `working/keys` securely (the PEMs
+   are the only copies, and kids are deterministic thumbprints, so restoring
+   the files restores the identical key set), or accept that after a disk
+   loss every token signed before the loss stays unverifiable until it
+   expires.
+7. Verify: `curl https://your-host/.well-known/jwks.json`.
 
 The `DocumentRoot` must point at `public/` — the project root and
 `working/keys` stay outside it, so private keys are never web-accessible.
@@ -83,7 +92,8 @@ Routing uses `FallbackResource` (set in the vhost, or via
 [public/.htaccess](public/.htaccess) if your setup allows overrides).
 
 Responses carry `Cache-Control: public, max-age=300`, so verifiers may cache
-the key set for up to 5 minutes.
+the key set for up to 5 minutes, and `Access-Control-Allow-Origin: *` so
+browser-based verifiers can read the key set (it holds only public keys).
 
 ## Key rotation
 
@@ -124,13 +134,27 @@ set in the real environment or in a `.env` file at the project root (copy
 | `JWKS_KEY_LIFETIME` | `2592000` (30 d) | Seconds a key lives after creation |
 | `JWKS_ROTATION_BUFFER` | `604800` (7 d) | Seconds before expiry that a successor appears; also the purge grace period |
 | `JWKS_TIME_UNTIL_USE` | `3600` (1 h) | Seconds a new key is published before it may sign |
-| `JWKS_KEY_BITS` | `2048` | RSA size of newly generated keys (minimum 2048) |
+| `JWKS_KEY_BITS` | `2048` | RSA size of newly generated keys (2048–8192) |
 | `JWKS_LOG_FILE` | `working/jwks.log` | Where key activity and errors are logged |
 
 The rotation buffer must exceed the lifetime of any token you sign — a token
 must always expire before the key that signed it leaves the key set. Manual
 `bin/jwks generate` and `bin/jwks retire` still work for emergencies (e.g.
 revoking a compromised key immediately).
+
+Concurrent rotation passes serialize on `rotate.lock` in the keys directory,
+so an overlapping cron run and manual rotate cannot both generate a
+successor.
+
+### Monitoring
+
+Point your monitoring at `bin/jwks status`: it exits 0 when the key set is
+healthy and 1 with one `DEGRADED: <reason>` line per problem (empty key set,
+legacy keys awaiting rotation, every key expired, or rotation overdue —
+the newest key inside its final rotation buffer with no successor). Every
+degraded state means the rotate cron is missing, dead, or has not run yet.
+Without monitoring, a dead cron looks fine for ~23 days and then the key
+set expires and every verifier breaks at once.
 
 ## Logging
 
@@ -142,10 +166,14 @@ with `JWKS_LOG_FILE`), one UTC ISO-8601 timestamped line per event:
 - `ERROR` — failed CLI commands and endpoint errors (the endpoint still
   answers with a JSON 500).
 
-Read-only commands (`list`, `show`, `signing-key`) and normal JWKS fetches
-are not logged — the web server's access log already covers fetches. If the
-log file cannot be written, lines fall back to PHP's `error_log` rather than
-failing the command or request.
+Read-only commands (`list`, `show`, `signing-key`, `status`) and normal
+JWKS fetches are not logged — the web server's access log already covers
+fetches. If the log file cannot be written, lines fall back to PHP's
+`error_log` rather than failing the command or request.
+
+The log grows without bound otherwise; install
+[docs/jwks-logrotate.example](docs/jwks-logrotate.example) as
+`/etc/logrotate.d/jwks` in production.
 
 ## Development checks
 

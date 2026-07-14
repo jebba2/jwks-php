@@ -54,6 +54,20 @@ final class KeyGeneratorTest extends TestCase
         $rejected = new KeyGenerator(1024);
     }
 
+    public function testRejectsBitsAbove8192(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        new KeyGenerator()->generate(16384);
+    }
+
+    public function testRejectsConfiguredDefaultBitsAbove8192(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        $rejected = new KeyGenerator(16384);
+    }
+
     public function testFromEnvironmentReadsConfiguredKeyBits(): void
     {
         putenv('JWKS_KEY_BITS=3072');

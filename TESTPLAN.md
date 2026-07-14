@@ -7,7 +7,7 @@ through this list.
 
 ## Automated checks
 
-- [ ] `composer test` — full PHPUnit suite passes (116 tests, includes real end-to-end built-in-server test)
+- [ ] `composer test` — full PHPUnit suite passes (127 tests, includes real end-to-end built-in-server test)
 - [ ] `composer stan` — phpstan level 9 reports no errors
 - [ ] `composer cs` — phpcs reports no PSR-12 violations
 
@@ -19,6 +19,7 @@ through this list.
 - [ ] `working/keys/<kid>.pem` exists with permissions `0600`, directory `working/keys` is `0700`
 - [ ] `bin/jwks generate 3072` creates a 3072-bit key (`openssl rsa -in working/keys/<kid>.pem -noout -text | head -1` shows 3072)
 - [ ] `bin/jwks generate 1024` prints an error to stderr and exits 1 (below 2048-bit minimum)
+- [ ] `bin/jwks generate 16384` prints an error to stderr and exits 1 (above 8192-bit maximum)
 - [ ] `bin/jwks generate huge` prints an error to stderr and exits 1 (non-numeric bits)
 - [ ] With `JWKS_KEY_BITS=3072` (environment or `.env`), `bin/jwks generate` with no argument creates a 3072-bit key; an explicit `[bits]` argument still wins
 
@@ -45,11 +46,20 @@ through this list.
 - [ ] With a legacy key (PEM without sidecar), `bin/jwks rotate` prints `Scheduled legacy key <kid> for replacement` plus `Generated key <kid>` and both keys remain
 - [ ] A key expired more than `JWKS_ROTATION_BUFFER` ago is purged: `Purged expired key <kid>`, PEM and sidecar gone
 - [ ] `JWKS_KEY_LIFETIME` / `JWKS_ROTATION_BUFFER` / `JWKS_TIME_UNTIL_USE` override the timing; invalid values print an error and exit 1
+- [ ] Two simultaneous `bin/jwks rotate` runs on an empty key set generate exactly one key (serialized on `rotate.lock`)
 
 ### signing-key
 
 - [ ] `bin/jwks signing-key` prints `<kid> <pem-path>` of the newest usable key and exits 0
 - [ ] With no keys, `bin/jwks signing-key` prints an error to stderr and exits 1
+
+### status
+
+- [ ] With a fresh key, `bin/jwks status` prints `OK: key set is healthy` and exits 0
+- [ ] With no keys, prints `DEGRADED: key set is empty…` and exits 1
+- [ ] With a legacy key (no sidecar), prints `DEGRADED: legacy key <kid> awaiting first rotation` and exits 1
+- [ ] With the newest key inside its rotation buffer and no successor, prints `DEGRADED: rotation overdue…` and exits 1
+- [ ] `status` writes no log lines
 
 ## Logging
 
@@ -82,6 +92,7 @@ through this list.
 - [ ] `curl -i http://127.0.0.1:8080/.well-known/jwks.json` returns `200`, `Content-Type: application/json`, `Cache-Control: public, max-age=300`, and the key set
 - [ ] `curl -i http://127.0.0.1:8080/` returns `200` with the same key set
 - [ ] Keys with a rotation sidecar carry an `exp` member in the JWKS; expired keys are absent from the document
+- [ ] Responses carry `Access-Control-Allow-Origin: *`
 - [ ] `curl -i http://127.0.0.1:8080/anything-else` returns `404` with a JSON error body
 - [ ] `curl -i -X POST http://127.0.0.1:8080/.well-known/jwks.json` returns `405` with `Allow: GET, HEAD`
 - [ ] `curl -I http://127.0.0.1:8080/.well-known/jwks.json` (HEAD) returns `200`

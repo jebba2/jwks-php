@@ -268,6 +268,25 @@ final class CliTest extends TestCase
         $this->assertNotSame('', $this->streamContents($this->err));
     }
 
+    public function testStatusReportsHealthyKeySet(): void
+    {
+        $cli = $this->cli();
+        $cli->run(['jwks', 'generate']);
+
+        $exitCode = $cli->run(['jwks', 'status']);
+
+        $this->assertSame(0, $exitCode);
+        $this->assertStringContainsString('OK', $this->streamContents($this->out));
+    }
+
+    public function testStatusReportsDegradedKeySetWithExitCode1(): void
+    {
+        $exitCode = $this->cli()->run(['jwks', 'status']);
+
+        $this->assertSame(1, $exitCode);
+        $this->assertStringContainsString('DEGRADED', $this->streamContents($this->out));
+    }
+
     public function testGenerateLogsTheNewKey(): void
     {
         $this->cli()->run(['jwks', 'generate']);
@@ -322,6 +341,7 @@ final class CliTest extends TestCase
         $cli->run(['jwks', 'list']);
         $cli->run(['jwks', 'show']);
         $cli->run(['jwks', 'signing-key']);
+        $cli->run(['jwks', 'status']);
 
         $this->assertSame('', $this->logContents());
     }
@@ -335,6 +355,7 @@ final class CliTest extends TestCase
         $this->assertStringContainsString('Usage', $output);
         $this->assertStringContainsString('rotate', $output);
         $this->assertStringContainsString('signing-key', $output);
+        $this->assertStringContainsString('status', $output);
     }
 
     public function testMissingCommandPrintsUsageAndFails(): void

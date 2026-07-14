@@ -98,6 +98,19 @@ final class EndpointTest extends TestCase
         $this->assertJson($response['body']);
     }
 
+    public function testResponsesAllowCrossOriginReads(): void
+    {
+        $endpoint = $this->endpointWithOneKey();
+
+        $keySet = $endpoint->handle('GET', '/.well-known/jwks.json');
+        $notFound = $endpoint->handle('GET', '/other');
+        $notAllowed = $endpoint->handle('POST', '/.well-known/jwks.json');
+
+        $this->assertSame('*', $keySet['headers']['Access-Control-Allow-Origin']);
+        $this->assertSame('*', $notFound['headers']['Access-Control-Allow-Origin']);
+        $this->assertSame('*', $notAllowed['headers']['Access-Control-Allow-Origin']);
+    }
+
     public function testDisallowedMethodReturns405WithAllowHeader(): void
     {
         $response = $this->endpointWithOneKey()->handle('POST', '/.well-known/jwks.json');

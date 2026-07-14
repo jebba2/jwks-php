@@ -21,6 +21,15 @@ final class Endpoint
 
     private const string CACHE_CONTROL = 'public, max-age=' . self::CACHE_MAX_AGE_SECONDS;
 
+    /**
+     * JWKS documents hold only public keys, so browser-based verifiers may
+     * read them cross-origin.
+     */
+    private const array COMMON_HEADERS = [
+        'Content-Type' => 'application/json',
+        'Access-Control-Allow-Origin' => '*',
+    ];
+
     public function __construct(private readonly JwksBuilder $builder)
     {
     }
@@ -35,10 +44,7 @@ final class Endpoint
         if (!in_array($method, ['GET', 'HEAD'], true)) {
             return [
                 'status' => 405,
-                'headers' => [
-                    'Content-Type' => 'application/json',
-                    'Allow' => 'GET, HEAD',
-                ],
+                'headers' => self::COMMON_HEADERS + ['Allow' => 'GET, HEAD'],
                 'body' => '{"error":"method not allowed"}',
             ];
         }
@@ -49,17 +55,14 @@ final class Endpoint
         if (!in_array($path, [self::KEY_SET_PATH, '/'], true)) {
             return [
                 'status' => 404,
-                'headers' => ['Content-Type' => 'application/json'],
+                'headers' => self::COMMON_HEADERS,
                 'body' => '{"error":"not found"}',
             ];
         }
 
         return [
             'status' => 200,
-            'headers' => [
-                'Content-Type' => 'application/json',
-                'Cache-Control' => self::CACHE_CONTROL,
-            ],
+            'headers' => self::COMMON_HEADERS + ['Cache-Control' => self::CACHE_CONTROL],
             'body' => $this->builder->toJson(),
         ];
     }

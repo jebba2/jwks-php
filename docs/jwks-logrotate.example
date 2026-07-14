@@ -1,0 +1,13 @@
+# Logrotate policy for the JWKS service logs.
+# Install as /etc/logrotate.d/jwks and adjust the paths to your deployment.
+# Keeps working/jwks.log bounded — the hourly rotate heartbeat alone adds
+# roughly 9,000 lines a year.
+/var/www/jwks/working/jwks.log /var/www/jwks/working/rotate.log {
+    monthly
+    rotate 12
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640
+}

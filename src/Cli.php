@@ -23,6 +23,7 @@ final class Cli
           rotate            Run one rotation pass: schedule legacy keys, generate successors, purge expired keys
           show              Print the public JWKS document as JSON
           signing-key       Print the kid and PEM path of the key the token issuer should sign with
+          status            Exit 0 when the key set is healthy, 1 with DEGRADED reasons when it is not
           help              Show this help text
 
         Keys are stored in working/keys (override with the JWKS_KEYS_DIR environment variable).
@@ -72,6 +73,7 @@ final class Cli
             'rotate' => $this->rotate(),
             'show' => $this->show(),
             'signing-key' => $this->signingKey(),
+            'status' => $this->status(),
             'help', '--help', '-h' => $this->printUsage($this->out, 0),
             default => $this->printUsage($this->err, 1),
         };
@@ -180,6 +182,32 @@ final class Cli
         }
 
         return 0;
+    }
+
+    /**
+     * Reports key-set health for monitoring; exit code 1 signals degraded.
+     */
+    private function status(): int
+    {
+        try {
+            $problems = $this->lifecycle()->healthProblems();
+        } catch (InvalidArgumentException | RuntimeException $exception) {
+            $this->reportError('status', $exception->getMessage());
+
+            return 1;
+        }
+
+        if ($problems === []) {
+            fwrite($this->out, "OK: key set is healthy\n");
+
+            return 0;
+        }
+
+        foreach ($problems as $problem) {
+            fwrite($this->out, "DEGRADED: $problem\n");
+        }
+
+        return 1;
     }
 
     /**

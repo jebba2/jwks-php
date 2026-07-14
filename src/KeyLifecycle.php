@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Jwks;
 
+use RuntimeException;
+
 /**
  * Drives keys through the D2L-style rotation lifecycle: legacy keys are
  * scheduled for replacement, a successor is generated one rotation buffer
@@ -21,7 +23,9 @@ final class KeyLifecycle
 
     /**
      * Runs one rotation pass. Idempotent, so it is safe to run from cron at
-     * any frequency. Returns the kids affected by each action.
+     * any frequency; concurrent passes serialize on a file lock so they
+     * cannot both generate a successor. Returns the kids affected by each
+     * action.
      *
      * @return array{stamped: list<string>, generated: ?string, purged: list<string>}
      */
@@ -29,6 +33,30 @@ final class KeyLifecycle
     {
         $now ??= time();
 
+        $lock = fopen($this->store->rotationLockPath(), 'c');
+        if ($lock === false) {
+            throw new RuntimeException('could not open rotation lock file ' . $this->store->rotationLockPath());
+        }
+        if (!flock($lock, LOCK_EX)) {
+            fclose($lock);
+            throw new RuntimeException('could not acquire the rotation lock');
+        }
+
+        try {
+            return $this->rotateLocked($now);
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+    }
+
+    /**
+     * The rotation pass itself; only ever runs under the rotation lock.
+     *
+     * @return array{stamped: list<string>, generated: ?string, purged: list<string>}
+     */
+    private function rotateLocked(int $now): array
+    {
         $stamped = [];
         foreach ($this->store->kids() as $kid) {
             if ($this->store->metadata($kid) === null) {
@@ -68,6 +96,56 @@ final class KeyLifecycle
         }
 
         return ['stamped' => $stamped, 'generated' => $generated, 'purged' => $purged];
+    }
+
+    /**
+     * Health check for monitoring: returns one description per problem, so
+     * an empty list means healthy. Degraded states mean the rotate cron is
+     * missing, dead, or has not run yet — every problem here is fixed by
+     * a successful rotation pass.
+     *
+     * @return list<string>
+     */
+    public function healthProblems(?int $now = null): array
+    {
+        $now ??= time();
+
+        $kids = $this->store->kids();
+        if ($kids === []) {
+            return ['key set is empty; run "jwks rotate"'];
+        }
+
+        $problems = [];
+        $hasStampedCurrentKey = false;
+        $hasFreshKey = false;
+        $newestExpiry = PHP_INT_MIN;
+        foreach ($kids as $kid) {
+            $metadata = $this->store->metadata($kid);
+            if ($metadata === null) {
+                $problems[] = "legacy key $kid awaiting first rotation";
+                continue;
+            }
+            if ($metadata['expiresAt'] <= $now) {
+                continue;
+            }
+
+            $hasStampedCurrentKey = true;
+            $newestExpiry = max($newestExpiry, $metadata['expiresAt']);
+            if ($now < $metadata['expiresAt'] - $this->policy->rotationBuffer) {
+                $hasFreshKey = true;
+            }
+        }
+
+        if ($this->signingKid($now) === null) {
+            $problems[] = 'no usable signing key; every key has expired';
+        }
+
+        if ($hasStampedCurrentKey && !$hasFreshKey) {
+            $problems[] = 'rotation overdue: newest key expires '
+                . gmdate('Y-m-d\TH:i:sP', $newestExpiry) . '; check the rotate cron';
+        }
+
+        return $problems;
     }
 
     /**

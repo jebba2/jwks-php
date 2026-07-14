@@ -17,6 +17,12 @@ final class KeyGenerator
      */
     private const int MINIMUM_BITS = 2048;
 
+    /**
+     * Nothing interoperable uses RSA above 8192 bits; the cap keeps a
+     * configuration typo from burning CPU for minutes on every rotation.
+     */
+    private const int MAXIMUM_BITS = 8192;
+
     public function __construct(private readonly int $defaultBits = self::MINIMUM_BITS)
     {
         self::assertAcceptableBits($defaultBits);
@@ -67,14 +73,17 @@ final class KeyGenerator
     }
 
     /**
-     * Rejects key sizes below the RS256 production minimum.
+     * Rejects key sizes outside the supported range.
      */
     private static function assertAcceptableBits(int $bits): void
     {
-        if ($bits < self::MINIMUM_BITS) {
-            throw new InvalidArgumentException(
-                sprintf('RSA keys must be at least %d bits, got %d', self::MINIMUM_BITS, $bits),
-            );
+        if ($bits < self::MINIMUM_BITS || $bits > self::MAXIMUM_BITS) {
+            throw new InvalidArgumentException(sprintf(
+                'RSA keys must be between %d and %d bits, got %d',
+                self::MINIMUM_BITS,
+                self::MAXIMUM_BITS,
+                $bits,
+            ));
         }
     }
 

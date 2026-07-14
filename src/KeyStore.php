@@ -127,6 +127,15 @@ final class KeyStore
     }
 
     /**
+     * Returns the path of the lock file that serializes rotation passes so
+     * concurrent rotates cannot both generate a successor.
+     */
+    public function rotationLockPath(): string
+    {
+        return $this->directory . '/rotate.lock';
+    }
+
+    /**
      * Returns the filesystem path of a stored key's PEM file, for token
      * issuers that read the private key directly.
      */

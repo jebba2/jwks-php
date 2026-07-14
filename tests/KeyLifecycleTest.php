@@ -173,6 +173,53 @@ final class KeyLifecycleTest extends TestCase
         $this->assertSame($soonest, $this->lifecycle()->signingKid(now: 500));
     }
 
+    public function testHealthProblemsReportsEmptyKeySet(): void
+    {
+        $problems = $this->lifecycle()->healthProblems(now: 500);
+
+        $this->assertCount(1, $problems);
+        $this->assertStringContainsString('empty', $problems[0]);
+    }
+
+    public function testHealthProblemsIsEmptyForFreshKey(): void
+    {
+        $this->store()->add(new KeyGenerator()->generate(), notBefore: 0, expiresAt: 10000);
+
+        $this->assertSame([], $this->lifecycle()->healthProblems(now: 500));
+    }
+
+    public function testHealthProblemsFlagsLegacyKeys(): void
+    {
+        $legacyKid = $this->store()->add(new KeyGenerator()->generate());
+
+        $problems = $this->lifecycle()->healthProblems(now: 500);
+
+        $this->assertCount(1, $problems);
+        $this->assertStringContainsString("legacy key $legacyKid", $problems[0]);
+    }
+
+    public function testHealthProblemsFlagsOverdueRotation(): void
+    {
+        // Inside the 1000s rotation buffer with no fresh successor: the
+        // cron should have generated one by now.
+        $this->store()->add(new KeyGenerator()->generate(), notBefore: 0, expiresAt: 1200);
+
+        $problems = $this->lifecycle()->healthProblems(now: 500);
+
+        $this->assertCount(1, $problems);
+        $this->assertStringContainsString('rotation overdue', $problems[0]);
+    }
+
+    public function testHealthProblemsFlagsFullyExpiredKeySet(): void
+    {
+        $this->store()->add(new KeyGenerator()->generate(), notBefore: 0, expiresAt: 400);
+
+        $problems = $this->lifecycle()->healthProblems(now: 500);
+
+        $this->assertCount(1, $problems);
+        $this->assertStringContainsString('no usable signing key', $problems[0]);
+    }
+
     public function testSigningKidIsNullForAnEmptyStore(): void
     {
         $this->assertNull($this->lifecycle()->signingKid(now: 500));
