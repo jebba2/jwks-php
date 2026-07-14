@@ -30,6 +30,7 @@ final class Cli
         JWKS_TIME_UNTIL_USE (seconds); new-key size comes from JWKS_KEY_BITS.
         Settings may also live in a .env file at the project root (see .env.example);
         real environment variables win over the file. Run rotate from cron to keep keys fresh.
+        Activity and errors are logged to working/jwks.log (override with JWKS_LOG_FILE).
 
         TEXT;
 
@@ -47,6 +48,7 @@ final class Cli
         private readonly KeyStore $store,
         private readonly RotationPolicy $policy,
         private readonly KeyGenerator $generator,
+        private readonly Logger $logger,
         $out,
         $err,
     ) {
@@ -81,7 +83,7 @@ final class Cli
     private function generate(?string $bitsArgument): int
     {
         if ($bitsArgument !== null && !ctype_digit($bitsArgument)) {
-            fwrite($this->err, "Error: bits must be a positive integer, got \"$bitsArgument\"\n");
+            $this->reportError('generate', "bits must be a positive integer, got \"$bitsArgument\"");
 
             return 1;
         }
@@ -97,12 +99,12 @@ final class Cli
                 $now + $this->policy->keyLifetime,
             );
         } catch (InvalidArgumentException | RuntimeException $exception) {
-            fwrite($this->err, 'Error: ' . $exception->getMessage() . "\n");
+            $this->reportError('generate', $exception->getMessage());
 
             return 1;
         }
 
-        fwrite($this->out, "Generated key $kid\n");
+        $this->reportActivity("Generated key $kid");
 
         return 0;
     }
@@ -132,7 +134,7 @@ final class Cli
     private function retire(?string $kid): int
     {
         if ($kid === null) {
-            fwrite($this->err, "Error: retire requires a kid. Run \"jwks list\" to see stored keys.\n");
+            $this->reportError('retire', 'retire requires a kid. Run "jwks list" to see stored keys.');
 
             return 1;
         }
@@ -140,12 +142,12 @@ final class Cli
         try {
             $this->store->retire($kid);
         } catch (InvalidArgumentException | RuntimeException $exception) {
-            fwrite($this->err, 'Error: ' . $exception->getMessage() . "\n");
+            $this->reportError('retire', $exception->getMessage());
 
             return 1;
         }
 
-        fwrite($this->out, "Retired key $kid\n");
+        $this->reportActivity("Retired key $kid");
 
         return 0;
     }
@@ -158,22 +160,23 @@ final class Cli
         try {
             $report = $this->lifecycle()->rotate();
         } catch (InvalidArgumentException | RuntimeException $exception) {
-            fwrite($this->err, 'Error: ' . $exception->getMessage() . "\n");
+            $this->reportError('rotate', $exception->getMessage());
 
             return 1;
         }
 
         foreach ($report['stamped'] as $kid) {
-            fwrite($this->out, "Scheduled legacy key $kid for replacement\n");
+            $this->reportActivity("Scheduled legacy key $kid for replacement");
         }
         if ($report['generated'] !== null) {
-            fwrite($this->out, "Generated key {$report['generated']}\n");
+            $this->reportActivity("Generated key {$report['generated']}");
         }
         foreach ($report['purged'] as $kid) {
-            fwrite($this->out, "Purged expired key $kid\n");
+            $this->reportActivity("Purged expired key $kid");
         }
         if ($report['stamped'] === [] && $report['generated'] === null && $report['purged'] === []) {
-            fwrite($this->out, "Key set is current; nothing to rotate.\n");
+            // Logged too: an hourly cron heartbeat proves rotation is alive.
+            $this->reportActivity('Key set is current; nothing to rotate.');
         }
 
         return 0;
@@ -186,7 +189,7 @@ final class Cli
     {
         $kid = $this->lifecycle()->signingKid();
         if ($kid === null) {
-            fwrite($this->err, "Error: no usable signing key. Run \"jwks rotate\" to create one.\n");
+            $this->reportError('signing-key', 'no usable signing key. Run "jwks rotate" to create one.');
 
             return 1;
         }
@@ -224,5 +227,23 @@ final class Cli
     private function lifecycle(): KeyLifecycle
     {
         return new KeyLifecycle($this->store, $this->generator, $this->policy);
+    }
+
+    /**
+     * Prints a key-management activity and records it in the log.
+     */
+    private function reportActivity(string $line): void
+    {
+        fwrite($this->out, $line . "\n");
+        $this->logger->info($line);
+    }
+
+    /**
+     * Prints a command failure to stderr and records it in the log.
+     */
+    private function reportError(string $command, string $message): void
+    {
+        fwrite($this->err, 'Error: ' . $message . "\n");
+        $this->logger->error($command . ': ' . $message);
     }
 }

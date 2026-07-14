@@ -65,7 +65,10 @@ final class BuiltInServerTest extends TestCase
             ],
             $pipes,
             $projectRoot,
-            ['JWKS_KEYS_DIR' => $this->directory],
+            [
+                'JWKS_KEYS_DIR' => $this->directory,
+                'JWKS_LOG_FILE' => $this->directory . '/jwks.log',
+            ],
         );
         $this->assertIsResource($process);
         $this->serverProcess = $process;
@@ -203,5 +206,21 @@ final class BuiltInServerTest extends TestCase
         $response = $this->httpGet('/nope');
 
         $this->assertSame(404, $response['status']);
+    }
+
+    public function testEndpointErrorsReturnJson500AndAreLogged(): void
+    {
+        mkdir($this->directory, 0o700, true);
+        file_put_contents($this->directory . '/bogus.pem', 'not a valid key');
+
+        $response = $this->httpGet('/.well-known/jwks.json');
+
+        $this->assertSame(500, $response['status']);
+        $this->assertJson($response['body']);
+        $this->assertStringContainsString('internal server error', $response['body']);
+
+        $log = file_get_contents($this->directory . '/jwks.log');
+        $this->assertNotFalse($log);
+        $this->assertStringContainsString('ERROR endpoint:', $log);
     }
 }

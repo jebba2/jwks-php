@@ -13,14 +13,18 @@ use Jwks\Endpoint;
 use Jwks\EnvFile;
 use Jwks\JwksBuilder;
 use Jwks\KeyStore;
+use Jwks\Logger;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $uri = $_SERVER['REQUEST_URI'] ?? '/';
 
+$logger = null;
+
 try {
     EnvFile::load(dirname(__DIR__) . '/.env');
+    $logger = Logger::fromEnvironment();
 
     // Private keys live in JWKS_KEYS_DIR if set, otherwise working/keys at
     // the project root (outside the document root).
@@ -35,7 +39,12 @@ try {
         is_string($uri) ? $uri : '/',
     );
 } catch (Throwable $exception) {
-    error_log('jwks endpoint error: ' . $exception->getMessage());
+    if ($logger !== null) {
+        $logger->error('endpoint: ' . $exception->getMessage());
+    } else {
+        // The logger itself could not be built (e.g. malformed .env).
+        error_log('jwks endpoint error: ' . $exception->getMessage());
+    }
     $response = [
         'status' => 500,
         'headers' => ['Content-Type' => 'application/json'],

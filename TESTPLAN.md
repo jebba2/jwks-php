@@ -7,7 +7,7 @@ through this list.
 
 ## Automated checks
 
-- [ ] `composer test` — full PHPUnit suite passes (103 tests, includes real end-to-end built-in-server test)
+- [ ] `composer test` — full PHPUnit suite passes (116 tests, includes real end-to-end built-in-server test)
 - [ ] `composer stan` — phpstan level 9 reports no errors
 - [ ] `composer cs` — phpcs reports no PSR-12 violations
 
@@ -50,6 +50,16 @@ through this list.
 
 - [ ] `bin/jwks signing-key` prints `<kid> <pem-path>` of the newest usable key and exits 0
 - [ ] With no keys, `bin/jwks signing-key` prints an error to stderr and exits 1
+
+## Logging
+
+- [ ] `bin/jwks generate` / `retire` / `rotate` append timestamped `INFO` lines to `working/jwks.log`
+- [ ] An idle `bin/jwks rotate` logs the "nothing to rotate" heartbeat line
+- [ ] A failed command (e.g. `bin/jwks retire unknown-kid`) appends an `ERROR` line
+- [ ] An endpoint failure (e.g. corrupt PEM in the keys directory) returns JSON 500 and appends an `ERROR endpoint:` line
+- [ ] `JWKS_LOG_FILE` (environment or `.env`) relocates the log
+- [ ] `list`, `show`, and `signing-key` do not write log lines
+- [ ] With an unwritable log path, commands still succeed and lines land in PHP's `error_log`
 
 ## Configuration via .env
 

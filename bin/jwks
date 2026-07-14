@@ -12,6 +12,7 @@ use Jwks\Cli;
 use Jwks\EnvFile;
 use Jwks\KeyGenerator;
 use Jwks\KeyStore;
+use Jwks\Logger;
 use Jwks\RotationPolicy;
 
 require dirname(__DIR__) . '/vendor/autoload.php';
@@ -30,6 +31,7 @@ try {
         new KeyStore($keysDirectory),
         RotationPolicy::fromEnvironment(),
         KeyGenerator::fromEnvironment(),
+        Logger::fromEnvironment(),
         STDOUT,
         STDERR,
     )->run($argv));

@@ -125,11 +125,27 @@ set in the real environment or in a `.env` file at the project root (copy
 | `JWKS_ROTATION_BUFFER` | `604800` (7 d) | Seconds before expiry that a successor appears; also the purge grace period |
 | `JWKS_TIME_UNTIL_USE` | `3600` (1 h) | Seconds a new key is published before it may sign |
 | `JWKS_KEY_BITS` | `2048` | RSA size of newly generated keys (minimum 2048) |
+| `JWKS_LOG_FILE` | `working/jwks.log` | Where key activity and errors are logged |
 
 The rotation buffer must exceed the lifetime of any token you sign — a token
 must always expire before the key that signed it leaves the key set. Manual
 `bin/jwks generate` and `bin/jwks retire` still work for emergencies (e.g.
 revoking a compromised key immediately).
+
+## Logging
+
+Every key activity and failure is recorded in `working/jwks.log` (override
+with `JWKS_LOG_FILE`), one UTC ISO-8601 timestamped line per event:
+
+- `INFO` — key generated, retired, scheduled for replacement, or purged;
+  plus an hourly "nothing to rotate" heartbeat proving the cron job is alive.
+- `ERROR` — failed CLI commands and endpoint errors (the endpoint still
+  answers with a JSON 500).
+
+Read-only commands (`list`, `show`, `signing-key`) and normal JWKS fetches
+are not logged — the web server's access log already covers fetches. If the
+log file cannot be written, lines fall back to PHP's `error_log` rather than
+failing the command or request.
 
 ## Development checks
 
@@ -151,4 +167,4 @@ The manual test walkthrough lives in [TESTPLAN.md](TESTPLAN.md).
 | `bin/` | `jwks` CLI and `serve` dev-server launcher |
 | `docs/` | Apache virtual-host example |
 | `tests/` | PHPUnit suite |
-| `working/` | Generated data: private keys (`working/keys/`), tool caches — never commit |
+| `working/` | Generated data: private keys (`working/keys/`), logs (`working/jwks.log`), tool caches — never commit |

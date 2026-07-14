@@ -7,6 +7,7 @@ namespace Jwks\Tests;
 use Jwks\Cli;
 use Jwks\KeyGenerator;
 use Jwks\KeyStore;
+use Jwks\Logger;
 use Jwks\RotationPolicy;
 use PHPUnit\Framework\TestCase;
 
@@ -53,9 +54,23 @@ final class CliTest extends TestCase
             new KeyStore($this->directory),
             $policy,
             $generator ?? new KeyGenerator(),
+            new Logger($this->directory . '/jwks.log'),
             $this->out,
             $this->err,
         );
+    }
+
+    private function logContents(): string
+    {
+        $path = $this->directory . '/jwks.log';
+        if (!is_file($path)) {
+            return '';
+        }
+
+        $contents = file_get_contents($path);
+        $this->assertIsString($contents);
+
+        return $contents;
     }
 
     /**
@@ -251,6 +266,64 @@ final class CliTest extends TestCase
 
         $this->assertSame(1, $exitCode);
         $this->assertNotSame('', $this->streamContents($this->err));
+    }
+
+    public function testGenerateLogsTheNewKey(): void
+    {
+        $this->cli()->run(['jwks', 'generate']);
+
+        $kid = new KeyStore($this->directory)->kids()[0];
+        $this->assertStringContainsString("INFO Generated key $kid", $this->logContents());
+    }
+
+    public function testRetireLogsTheRemoval(): void
+    {
+        $kid = new KeyStore($this->directory)->add(new KeyGenerator()->generate());
+
+        $this->cli()->run(['jwks', 'retire', $kid]);
+
+        $this->assertStringContainsString("INFO Retired key $kid", $this->logContents());
+    }
+
+    public function testRotateActionsAreLogged(): void
+    {
+        $legacyKid = new KeyStore($this->directory)->add(new KeyGenerator()->generate());
+
+        $this->cli()->run(['jwks', 'rotate']);
+
+        $log = $this->logContents();
+        $this->assertStringContainsString("INFO Scheduled legacy key $legacyKid for replacement", $log);
+        $this->assertStringContainsString('INFO Generated key', $log);
+    }
+
+    public function testRotatePurgeIsLogged(): void
+    {
+        $store = new KeyStore($this->directory);
+        $expiredKid = $store->add(new KeyGenerator()->generate(), notBefore: 0, expiresAt: 1000);
+
+        $this->cli()->run(['jwks', 'rotate']);
+
+        $this->assertStringContainsString("INFO Purged expired key $expiredKid", $this->logContents());
+    }
+
+    public function testFailedCommandLogsError(): void
+    {
+        $this->cli()->run(['jwks', 'retire', 'does-not-exist']);
+
+        $this->assertStringContainsString('ERROR retire: ', $this->logContents());
+    }
+
+    public function testReadOnlyCommandsDoNotLog(): void
+    {
+        $store = new KeyStore($this->directory);
+        $store->add(new KeyGenerator()->generate(), notBefore: 0, expiresAt: PHP_INT_MAX);
+
+        $cli = $this->cli();
+        $cli->run(['jwks', 'list']);
+        $cli->run(['jwks', 'show']);
+        $cli->run(['jwks', 'signing-key']);
+
+        $this->assertSame('', $this->logContents());
     }
 
     public function testHelpPrintsUsage(): void
